@@ -8,6 +8,7 @@ import static moe.yushi.authlibinjector.util.Logging.Level.INFO;
 import static moe.yushi.authlibinjector.util.Logging.Level.WARNING;
 import java.io.IOException;
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
@@ -118,7 +119,17 @@ public final class PublicKeyManager implements AutoCloseable {
 	public static PublicKeyManager forMetadata(APIMetadata metadata) throws IOException {
 		if (!PublicKeyLoader.isEnabled(metadata)) return fixed(PublicKeyLoader.load(metadata));
 		PublicKeyLoader.validateEndpoint(metadata.getApiRoot());
-		return refreshing(PublicKeys.mojang(), () -> PublicKeyLoader.load(metadata), Policy.fromProperties(System.getProperties()));
+		// 降级基线：[元数据 signaturePublickey ∪ 内置 Mojang]。公钥接口失败或缓存过期时
+		// 回退到它，本站自身签名的材质在降级期仍可验证；拉取成功后仍完整替换（保留撤销语义）。
+		java.util.List<PublicKey> siteKey = new ArrayList<>();
+		if (metadata.getDecodedPublickey().isPresent()) {
+			siteKey.add(metadata.getDecodedPublickey().get());
+		}
+		// 降级基线：[元数据 signaturePublickey ∪ 内置 Mojang]。公钥接口失败或缓存过期时
+		// 回退到它，本站自身签名的材质在降级期仍可验证；拉取成功后仍完整替换（保留撤销语义）。
+		PublicKeys metadataKeys = new PublicKeys(siteKey, siteKey);
+		return refreshing(PublicKeys.mojang().merge(metadataKeys),
+				() -> PublicKeyLoader.load(metadata), Policy.fromProperties(System.getProperties()));
 	}
 
 	public boolean isDynamic() { return source != null; }

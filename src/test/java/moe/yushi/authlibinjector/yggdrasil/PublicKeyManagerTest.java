@@ -42,6 +42,24 @@ public class PublicKeyManagerTest {
 	@AfterEach
 	public void close() { managers.forEach(PublicKeyManager::close); }
 
+	@Test
+	public void fetchFailureDegradesToMetadataKeyBaseline() throws Exception {
+		// 降级基线 = [元数据 signaturePublickey ∪ Mojang]：公钥接口故障时，
+		// 本站自身签名的材质仍可验证，不再退化为仅 Mojang 导致全站材质失效。
+		java.util.List<java.security.PublicKey> metaKeys = java.util.Collections.singletonList(
+				moe.yushi.authlibinjector.test.UnionTestKeys.SITE_A.getPublic());
+		PublicKeys baseline = PublicKeys.mojang().merge(new PublicKeys(metaKeys, metaKeys));
+		PublicKeyManager manager = PublicKeyManager.refreshing(baseline,
+				() -> { throw new java.io.IOException("key endpoint down"); }, POLICY, clock::get);
+		managers.add(manager);
+
+		byte[] sig = sign(moe.yushi.authlibinjector.test.UnionTestKeys.SITE_A.getPrivate(), PAYLOAD);
+		assertTrue(manager.verify(PublicKeyManager.Purpose.PROFILE_PROPERTY, PAYLOAD, sig));
+
+		byte[] foreign = sign(moe.yushi.authlibinjector.test.UnionTestKeys.UNKNOWN.getPrivate(), PAYLOAD);
+		assertFalse(manager.verify(PublicKeyManager.Purpose.PROFILE_PROPERTY, PAYLOAD, foreign));
+	}
+
 	private PublicKeyManager manager(PublicKeyManager.KeySource source) {
 		PublicKeyManager manager = PublicKeyManager.refreshing(BUILTIN, source, POLICY, clock::get);
 		managers.add(manager);
