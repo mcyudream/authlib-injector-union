@@ -17,6 +17,9 @@ local.properties
 # External tool builders
 .externalToolBuilders/
 
+# Release tooling test caches
+__pycache__/
+
 # Locally stored "Eclipse launch configurations"
 *.launch
 

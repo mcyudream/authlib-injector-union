@@ -6,6 +6,7 @@ on:
 jobs:
   submit_release:
     if:
+      github.repository == 'yushijinhun/authlib-injector' &&
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest

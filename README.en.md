@@ -1,34 +1,56 @@
  * **English**
- * [简体中文(Chinese Simplified)](https://github.com/yushijinhun/authlib-injector/blob/develop/README.md)
+ * [简体中文(Chinese Simplified)](README.md)
 
-# authlib-injector
-[![latest release](https://img.shields.io/github/v/tag/yushijinhun/authlib-injector?color=yellow&include_prereleases&label=version&sort=semver&style=flat-square)](https://github.com/yushijinhun/authlib-injector/releases)
-[![ci status](https://img.shields.io/github/actions/workflow/status/yushijinhun/authlib-injector/ci.yml?branch=develop)](https://github.com/yushijinhun/authlib-injector/actions?query=workflow%3ACI)
+# authlib-injector-union
+
+[![version](https://img.shields.io/badge/version-1.4.0--dev-blue?style=flat-square)](CHANGELOG.md)
+[![ci status](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml)
+[![Nexus publish](https://github.com/mcyudream/authlib-injector-union/actions/workflows/publish_nexus.yml/badge.svg)](https://github.com/mcyudream/authlib-injector-union/actions/workflows/publish_nexus.yml)
 [![license agpl-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square)](https://github.com/yushijinhun/authlib-injector/blob/develop/COPYING.md)
 
 authlib-injector enables you to build a Minecraft authentication system offering all the features that genuine Minecraft has.
 
+This fork's **1.4.0** supports purpose-separated multi-key trust with new on-demand loading and runtime refresh. Authentication sites keep their own private keys and publish approved public keys to their clients. Texture properties and player certificates still require valid signatures. No launcher source changes are needed, but clients must actually load the updated agent JAR, and their authentication backend must implement the new endpoint.
+
+The first verification or public-key endpoint read activates fetching; subsequent refreshes are due every 5 minutes by default, and signature misses can trigger a rate-limited refresh. Cold/missed checks may wait up to 2 seconds for keys. This does not guarantee nonblocking rendering or automatic skin-cache invalidation across old game versions. Legacy metadata still uses fixed keys.
+
+See the [union public-key protocol and migration notes](docs/union-public-keys.md) and [changelog](CHANGELOG.md). This does not implement federated login or deploy any live service.
+
 **[See the wiki](https://yushijinhun.github.io/authlib-injector) for documents and detailed descriptions.**
 
 ## Download
-You can download the latest authlib-injector build from [here](https://authlib-injector.yushi.moe/).
+
+Tagged releases are published by GitHub Actions to [YuDream Nexus](https://nexus.yudream.online/) as `online.yudream:authlib-injector-union:X.Y.Z`. The main JAR is the shaded Java agent; source JARs, POMs and checksums are published alongside it.
+
+After the first 1.4.0 publication succeeds: [download the agent](https://nexus.yudream.online/repository/maven-releases/online/yudream/authlib-injector-union/1.4.0/authlib-injector-union-1.4.0.jar). This is currently a development version, so the link may return 404 before publication. You can also use this fork's [CI artifacts](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml) or build locally.
+
+The [original download site](https://authlib-injector.yushi.moe/) does not contain this fork's union public-key feature. Ensure the launcher actually loads the new JAR and does not replace it with upstream.
 
 ## Build
+
 Dependencies: Gradle, JDK 17+. The target Java platform version is 8.
 
 Run:
 ```
-gradle
+./gradlew test shadowJar
 ```
-Build output can be found in `build/libs`.
+Build output can be found in `build/libs`. Untagged local builds retain the `.dirty` suffix.
+
+## Automatic Nexus publishing
+
+Branch pushes and PRs only build/test. Push an immutable `vX.Y.Z` tag matching `gradle.properties` to test, inspect, publish and download/verify the release with SHA-256. The tested JARs are not rebuilt during upload; existing versions are rejected.
+
+Configure repository Actions secrets `NEXUS_USERNAME` and `NEXUS_PASSWORD`. No personal GitHub token is used by the workflows. Inherited upstream release/wiki workflows do not run on this fork. See the [publishing guide](docs/nexus-release.md) for permissions, tag rules and partial-upload recovery. CI publishing does not replace real Minecraft acceptance tests.
 
 ## Deploy
+
 Configure Minecraft server with the following JVM parameter:
 ```
 -javaagent:{/path/to/authlib-injector.jar}={Authentication Server URL}
 ```
 
 ## Options
+
 ```
 -Dauthlibinjector.mojangNamespace={default|enabled|disabled}
     Whether to enable Mojang namespace (@mojang suffix).
@@ -79,6 +101,17 @@ Configure Minecraft server with the following JVM parameter:
 
 -Dauthlibinjector.httpdPort={port}
     Sets the port used by the local HTTP server, defaults to 0 (randomly chosen).
+
+-Dauthlibinjector.publicKeys.refreshSeconds=300
+-Dauthlibinjector.publicKeys.maxAgeSeconds=900
+-Dauthlibinjector.publicKeys.cooldownSeconds=30
+-Dauthlibinjector.publicKeys.waitMillis=2000
+    Used only when metadata enables feature.enable_public_key_fetching.
+    Refresh interval, maximum custom-key cache age, request cooldown, and caller wait limit.
+    Requires 0 < cooldownSeconds <= refreshSeconds <= maxAgeSeconds <= 86400,
+    and waitMillis in 0..10000. Zero avoids waiting for downloads; pending keys fail verification
+    until a caller retries. Failed refreshes do not renew cache age. On expiry only the bundled
+    Mojang key remains; the legacy metadata key is never a fallback in opt-in mode.
 
 -Dauthlibinjector.noShowServerName
     Do not show authentication server name in Minecraft menu screen.

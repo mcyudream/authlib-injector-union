@@ -4,7 +4,7 @@ on:
     types: [published]
 jobs:
   deploy_release:
-    if: contains(github.event.release.body, '@@release.trigger_deploy@@')
+    if: github.repository == 'yushijinhun/authlib-injector' && contains(github.event.release.body, '@@release.trigger_deploy@@')
     runs-on: ubuntu-latest
     steps:
       - name: Install deploy key

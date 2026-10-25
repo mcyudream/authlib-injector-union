@@ -2,31 +2,49 @@ name: CI
 
 on:
   push:
-    branches-ignore: [ master ]
+    branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        fetch-depth: 0
+        persist-credentials: false
 
     - name: Setup JDK
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
       with:
         distribution: temurin
         java-version: 17
         cache: gradle
 
-    - name: Build
-      run: ./gradlew
+    - name: Test release tooling
+      run: python3 -m unittest discover -s ci/tests -v
 
-    - name: Test
-      run: ./gradlew test
+    - name: Build and test
+      run: ./gradlew --no-daemon test shadowJar sourcesJar generatePomFileForAgentPublication
+
+    - name: Verify and bundle artifacts
+      run: python3 ci/release.py bundle
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        path: build/libs/*
+        name: authlib-injector-union-${{ github.sha }}
+        path: build/release/
+        if-no-files-found: error
+        retention-days: 14

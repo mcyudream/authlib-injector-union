@@ -1,0 +1,88 @@
+name: Publish to Nexus
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize all releases, including updates to shared Maven metadata.
+concurrency:
+  group: nexus-releases
+  cancel-in-progress: false
+
+env:
+  AI_BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  build:
+    if: github.repository == 'mcyudream/authlib-injector-union' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Validate release tag
+        run: python3 ci/release.py check-tag
+      - name: Test release tooling
+        run: python3 -m unittest discover -s ci/tests -v
+      - name: Build and test without deployment credentials
+        run: ./gradlew --no-daemon test shadowJar sourcesJar generatePomFileForAgentPublication
+      - name: Verify release bundle
+        run: python3 ci/release.py bundle --release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nexus-release-${{ github.run_id }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nexus-release-${{ github.run_id }}
+          path: build/release/
+      - name: Restore exactly the tested artifacts
+        run: python3 ci/release.py restore
+      - name: Verify the generated POM is unchanged
+        shell: bash
+        run: |
+          ./gradlew --no-daemon generatePomFileForAgentPublication
+          cmp build/publications/agent/pom-default.xml build/release/*.pom
+      - name: Check credentials and refuse existing versions
+        run: python3 ci/release.py preflight
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      - name: Publish tested JAR and sources without rebuilding
+        run: ./gradlew --no-daemon publishAgentPublicationToNexusRepository -x shadowJar -x sourcesJar
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      - name: Download and verify published bytes
+        run: python3 ci/release.py verify-published
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}

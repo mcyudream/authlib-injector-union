@@ -2,6 +2,13 @@ plugins {
 	id 'com.github.johnrengelman.shadow' version '8.1.1'
 	id 'com.palantir.git-version' version '3.0.0'
 	id 'java'
+	id 'maven-publish'
+}
+
+group = 'online.yudream'
+
+java {
+	withSourcesJar()
 }
 
 repositories {
@@ -20,7 +27,8 @@ tasks.withType(JavaCompile) {
 
 def buildNumber = System.getenv('AI_BUILD_NUMBER')
 def gitInfo = versionDetails()
-version = System.getenv('AI_VERSION_NUMBER') ?: 'snapshot';
+def releaseVersion = project.version.toString()
+version = System.getenv('AI_VERSION_NUMBER') ?: project.version
 if (!gitInfo.isCleanTag) version += '.dirty'
 
 jar {
@@ -28,7 +36,7 @@ jar {
 		attributes (
 			'Implementation-Title': project.name,
 			'Implementation-Version': project.version,
-			'Implementation-Vendor': 'yushijinhun',
+			'Implementation-Vendor': 'mcyudream (authlib-injector-union)',
 			'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
 			'Automatic-Module-Name': 'moe.yushi.authlibinjector',
 			'Premain-Class': 'moe.yushi.authlibinjector.Premain',
@@ -51,6 +59,13 @@ processResources {
 
 test {
 	useJUnitPlatform()
+	dependsOn shadowJar
+	// Packaged-agent tests consume this JAR, not just the main class directory.
+	inputs.file(tasks.named('shadowJar').flatMap { it.archiveFile }).withPropertyName('agentJar')
+	doFirst {
+		systemProperty 'union.agentJar', shadowJar.archiveFile.get().asFile.absolutePath
+		systemProperty 'union.testClasses', sourceSets.test.output.classesDirs.asPath
+	}
 }
 
 shadowJar {
@@ -60,6 +75,56 @@ shadowJar {
 	exclude 'module-info.class'
 
 	relocate 'org.objectweb.asm', 'moe.yushi.authlibinjector.internal.org.objectweb.asm'
+}
+
+publishing {
+	publications {
+		agent(MavenPublication) {
+			// Publish the executable shaded agent, not the unshaded java component.
+			artifact tasks.shadowJar
+			artifact tasks.sourcesJar
+			pom {
+				name = 'authlib-injector-union'
+				description = 'Yggdrasil Java agent with purpose-separated, refreshable multi-key trust'
+				url = 'https://github.com/mcyudream/authlib-injector-union'
+				licenses {
+					license {
+						name = 'AGPL-3.0-or-later with authlib-injector exception'
+						url = 'https://github.com/mcyudream/authlib-injector-union/blob/develop/AGPLv3-with-authlib-injector-exception.txt'
+					}
+				}
+				scm {
+					connection = 'scm:git:https://github.com/mcyudream/authlib-injector-union.git'
+					url = 'https://github.com/mcyudream/authlib-injector-union'
+				}
+			}
+		}
+	}
+	repositories {
+		maven {
+			name = 'Nexus'
+			url = uri('https://nexus.yudream.online/repository/maven-releases/')
+			credentials {
+				username = System.getenv('NEXUS_USERNAME')
+				password = System.getenv('NEXUS_PASSWORD')
+			}
+			authentication {
+				basic(org.gradle.authentication.http.BasicAuthentication)
+			}
+		}
+	}
+}
+
+tasks.withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository).configureEach {
+	doFirst {
+		if (!gitInfo.isCleanTag || project.version.toString() != releaseVersion
+				|| !(releaseVersion ==~ /(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/)) {
+			throw new GradleException('Nexus publishing requires a clean release tag and the version in gradle.properties')
+		}
+		if (!System.getenv('NEXUS_USERNAME') || !System.getenv('NEXUS_PASSWORD')) {
+			throw new GradleException('NEXUS_USERNAME and NEXUS_PASSWORD are required for publishing')
+		}
+	}
 }
 
 defaultTasks 'clean', 'shadowJar'

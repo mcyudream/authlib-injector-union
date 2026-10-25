@@ -1,34 +1,58 @@
- * [English](https://github.com/yushijinhun/authlib-injector/blob/develop/README.en.md)
+ * [English](README.en.md)
  * **简体中文(Chinese Simplified)**
 
-# authlib-injector
-[![latest release](https://img.shields.io/github/v/tag/yushijinhun/authlib-injector?color=yellow&include_prereleases&label=version&sort=semver&style=flat-square)](https://github.com/yushijinhun/authlib-injector/releases)
-[![ci status](https://img.shields.io/github/actions/workflow/status/yushijinhun/authlib-injector/ci.yml?branch=develop)](https://github.com/yushijinhun/authlib-injector/actions?query=workflow%3ACI)
+# authlib-injector-union
+
+[![version](https://img.shields.io/badge/version-1.4.0--dev-blue?style=flat-square)](CHANGELOG.md)
+[![ci status](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml)
+[![Nexus publish](https://github.com/mcyudream/authlib-injector-union/actions/workflows/publish_nexus.yml/badge.svg)](https://github.com/mcyudream/authlib-injector-union/actions/workflows/publish_nexus.yml)
 [![license agpl-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg?style=flat-square)](https://github.com/yushijinhun/authlib-injector/blob/develop/COPYING.md)
 
 通过运行时修改 authlib 实现游戏外登录，并为 Yggdrasil 服务端的实现提供规范。
 
+本分支 **1.4.0** 支持按用途隔离的多公钥信任，并新增按需加载与运行中刷新：各认证站保留自己的私钥，向本站客户端公布经管理员批准的本站/合作站公钥；材质和玩家证书仍须通过真实签名验证。无需修改启动器源码，但客户端实际加载的 agent JAR 必须更新，认证后端也须提供新接口。
+
+公钥在首次验签或读取公钥接口时加载，此后默认每 5 分钟检查刷新，验签失配也可触发限频刷新。首次加载/失配默认允许调用方最多等待 2 秒；这不是所有旧版游戏都无阻塞、自动重绘皮肤的保证。旧元数据仍采用固定公钥模式。
+
+配置、兼容性和迁移限制见 [联合公钥协议](docs/union-public-keys.md) 与 [变更记录](CHANGELOG.md)。这不是已部署的线上服务，也不自动建立联合登录。
+
 **关于该项目的详细介绍见 [wiki](https://yushijinhun.github.io/authlib-injector)。**
 
 ## 获取
-您可以从[这里](https://authlib-injector.yushi.moe/)获取最新的 authlib-injector。
+
+正式版本通过 GitHub Actions 发布至 [YuDream Nexus](https://nexus.yudream.online/)，Maven 坐标为 `online.yudream:authlib-injector-union:X.Y.Z`。主 JAR 可直接用于 `-javaagent`，同目录提供源码 JAR、POM 和校验文件。
+
+1.4.0 首次发布成功后：[下载 agent JAR](https://nexus.yudream.online/repository/maven-releases/online/yudream/authlib-injector-union/1.4.0/authlib-injector-union-1.4.0.jar)。当前为开发版本，首次发布前该链接可能返回 404；也可下载本仓 [CI 构建产物](https://github.com/mcyudream/authlib-injector-union/actions/workflows/ci.yml)或从源码构建。
+
+[原版下载站](https://authlib-injector.yushi.moe/)不包含本分支的联合公钥功能。替换 JAR 后须确认启动器不会自动下载原版覆盖。
 
 ## 构建
+
 构建依赖：Gradle、JDK 17+（目标 Java 版本为 8）。
 
 执行以下命令：
 ```
-gradle
+./gradlew test shadowJar
 ```
-构建输出位于 `build/libs` 下。
+构建输出位于 `build/libs` 下；未打标签的本地构建版本保留 `.dirty` 后缀。
+
+## 自动发布到 Nexus
+
+普通分支 push / PR 只构建测试。推送与 `gradle.properties` 版本一致的 `vX.Y.Z` 标签后，CI 自动执行测试、检查打包内容、发布 Nexus 并下载核对 SHA-256；不重建已经测试过的 JAR，不覆盖已有版本。
+
+维护者需配置仓库 Actions Secrets：`NEXUS_USERNAME`、`NEXUS_PASSWORD`。个人 GitHub API token 不进入工作流。上游 release/wiki 工作流在本 fork 不执行。
+
+配置、权限、标签规则和失败处理见 [Nexus 发布说明](docs/nexus-release.md)。CI 发布成功不代表已经通过真实 Minecraft 双站验收。
 
 ## 部署
+
 通过添加以下 JVM 参数来配置：
 ```
 -javaagent:{authlib-injector.jar 的路径}={验证服务器 URL (API 地址)}
 ```
 
 ## 参数
+
 ```
 -Dauthlibinjector.noLogFile
     不要将日志输出到文件.
@@ -87,6 +111,16 @@ gradle
 
 -Dauthlibinjector.httpdPort={端口号}
     设置内置 HTTP 服务器使用的端口号, 默认为 0 (随机分配).
+
+-Dauthlibinjector.publicKeys.refreshSeconds=300
+-Dauthlibinjector.publicKeys.maxAgeSeconds=900
+-Dauthlibinjector.publicKeys.cooldownSeconds=30
+-Dauthlibinjector.publicKeys.waitMillis=2000
+    仅在元数据启用 feature.enable_public_key_fetching 时生效.
+    依次为刷新间隔、自定义公钥缓存最大年龄、请求冷却时间、调用方最多等待时间.
+    要求 0 < cooldownSeconds <= refreshSeconds <= maxAgeSeconds <= 86400,
+    waitMillis 为 0..10000. 设为 0 不等待下载, 密钥未就绪时验签失败, 需调用方重试.
+    刷新失败不会延长缓存寿命; 过期后只保留内置 Mojang 公钥, 不退回旧元数据公钥.
 
 -Dauthlibinjector.noShowServerName
     不要在 Minecraft 主界面展示验证服务器名称.

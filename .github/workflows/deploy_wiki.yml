@@ -7,6 +7,7 @@ on:
 
 jobs:
   deploy:
+    if: github.repository == 'yushijinhun/authlib-injector'
     runs-on: ubuntu-latest
     permissions:
       contents: write  # To push a branch 

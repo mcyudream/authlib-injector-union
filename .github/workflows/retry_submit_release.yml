@@ -5,6 +5,7 @@ on:
 jobs:
   retry_submit_release:
     if:
+      github.repository == 'yushijinhun/authlib-injector' &&
       github.event.issue.pull_request != null &&
       contains(github.event.issue.labels.*.name, 'release') &&
       contains(github.event.comment.body, '@@release_proposal.retry@@')

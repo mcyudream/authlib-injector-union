@@ -4,6 +4,7 @@ on:
     types: [release_proposal_submit]
 jobs:
   create_release:
+    if: github.repository == 'yushijinhun/authlib-injector'
     runs-on: ubuntu-latest
     steps:
       - id: parse_pr
