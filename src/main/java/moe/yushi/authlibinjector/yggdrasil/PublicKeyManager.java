@@ -79,6 +79,7 @@ public final class PublicKeyManager implements AutoCloseable {
 
 	private final Object lock = new Object();
 	private final PublicKeys baseline;
+	private final PublicKeys refreshBaseline;
 	private final KeySource source;
 	private final Policy policy;
 	private final LongSupplier clock;
@@ -91,8 +92,9 @@ public final class PublicKeyManager implements AutoCloseable {
 	private boolean attempted;
 	private long lastAttemptAt;
 
-	private PublicKeyManager(PublicKeys baseline, KeySource source, Policy policy, LongSupplier clock) {
+	private PublicKeyManager(PublicKeys baseline, PublicKeys refreshBaseline, KeySource source, Policy policy, LongSupplier clock) {
 		this.baseline = requireNonNull(baseline);
+		this.refreshBaseline = requireNonNull(refreshBaseline);
 		this.source = source;
 		this.policy = requireNonNull(policy);
 		this.clock = requireNonNull(clock);
@@ -104,32 +106,35 @@ public final class PublicKeyManager implements AutoCloseable {
 	}
 
 	public static PublicKeyManager fixed(PublicKeys keys) {
-		return new PublicKeyManager(keys, null, new Policy(300000, 900000, 30000, 0), System::nanoTime);
+		return new PublicKeyManager(keys, keys, null, new Policy(300000, 900000, 30000, 0), System::nanoTime);
 	}
 
 	public static PublicKeyManager refreshing(PublicKeys baseline, KeySource source, Policy policy) {
-		return refreshing(baseline, source, policy, System::nanoTime);
+		return refreshing(baseline, baseline, source, policy, System::nanoTime);
 	}
 
 	// Injectable monotonic clock keeps expiry/concurrency tests deterministic.
 	static PublicKeyManager refreshing(PublicKeys baseline, KeySource source, Policy policy, LongSupplier clock) {
-		return new PublicKeyManager(baseline, requireNonNull(source), policy, clock);
+		return refreshing(baseline, baseline, source, policy, clock);
+	}
+
+	static PublicKeyManager refreshing(PublicKeys baseline, PublicKeys refreshBaseline, KeySource source,
+			Policy policy, LongSupplier clock) {
+		return new PublicKeyManager(baseline, refreshBaseline, requireNonNull(source), policy, clock);
 	}
 
 	public static PublicKeyManager forMetadata(APIMetadata metadata) throws IOException {
 		if (!PublicKeyLoader.isEnabled(metadata)) return fixed(PublicKeyLoader.load(metadata));
 		PublicKeyLoader.validateEndpoint(metadata.getApiRoot());
-		// 降级基线：[元数据 signaturePublickey ∪ 内置 Mojang]。公钥接口失败或缓存过期时
-		// 回退到它，本站自身签名的材质在降级期仍可验证；拉取成功后仍完整替换（保留撤销语义）。
+		// 故障或缓存过期时保留元数据签名根；刷新成功后只保留内置 Mojang 根和接口当前公布的密钥。
 		java.util.List<PublicKey> siteKey = new ArrayList<>();
 		if (metadata.getDecodedPublickey().isPresent()) {
 			siteKey.add(metadata.getDecodedPublickey().get());
 		}
-		// 降级基线：[元数据 signaturePublickey ∪ 内置 Mojang]。公钥接口失败或缓存过期时
-		// 回退到它，本站自身签名的材质在降级期仍可验证；拉取成功后仍完整替换（保留撤销语义）。
 		PublicKeys metadataKeys = new PublicKeys(siteKey, siteKey);
-		return refreshing(PublicKeys.mojang().merge(metadataKeys),
-				() -> PublicKeyLoader.load(metadata), Policy.fromProperties(System.getProperties()));
+		PublicKeys mojang = PublicKeys.mojang();
+		return refreshing(mojang.merge(metadataKeys), mojang, () -> PublicKeyLoader.load(metadata),
+				Policy.fromProperties(System.getProperties()), System::nanoTime);
 	}
 
 	public boolean isDynamic() { return source != null; }
@@ -213,7 +218,7 @@ public final class PublicKeyManager implements AutoCloseable {
 
 	private void load(CompletableFuture<Snapshot> flight) {
 		try {
-			PublicKeys loaded = baseline.merge(requireNonNull(source.load()));
+			PublicKeys loaded = refreshBaseline.merge(requireNonNull(source.load()));
 			Snapshot fresh = new Snapshot(loaded, clock.getAsLong());
 			synchronized (lock) {
 				if (closed || inFlight != flight) return;

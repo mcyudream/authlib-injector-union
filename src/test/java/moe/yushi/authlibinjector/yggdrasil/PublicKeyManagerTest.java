@@ -60,6 +60,20 @@ public class PublicKeyManagerTest {
 		assertFalse(manager.verify(PublicKeyManager.Purpose.PROFILE_PROPERTY, PAYLOAD, foreign));
 	}
 
+	@Test
+	public void successfulRefreshDropsMetadataFallbackButRetainsMojangKeys() throws Exception {
+		PublicKeys fallback = BUILTIN.merge(keys(SITE_A.getPublic()));
+		PublicKeyManager manager = PublicKeyManager.refreshing(fallback, BUILTIN,
+				() -> keys(SITE_B.getPublic()), POLICY, clock::get);
+		managers.add(manager);
+
+		manager.refreshAsync().get(2, SECONDS);
+		assertFalse(manager.verify(PROFILE_PROPERTY, PAYLOAD, signedA()),
+				"A successful snapshot must not keep the legacy metadata fallback key");
+		assertTrue(manager.verify(PROFILE_PROPERTY, PAYLOAD, signedB()));
+		assertTrue(manager.currentKeys().getProfilePropertyKeys().containsAll(BUILTIN.getProfilePropertyKeys()));
+	}
+
 	private PublicKeyManager manager(PublicKeyManager.KeySource source) {
 		PublicKeyManager manager = PublicKeyManager.refreshing(BUILTIN, source, POLICY, clock::get);
 		managers.add(manager);
