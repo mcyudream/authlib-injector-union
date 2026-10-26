@@ -39,11 +39,14 @@ public final class AgentLifecycleMain {
 		Signature reusable = info.signature();
 		byte[] data = AgentSmokeMain.VALUE.getBytes(UTF_8);
 		if ("unavailable".equals(mode)) {
-			for (int i = 1; i <= 3; i++) {
-				check(!info.validateProperty(new Property(AgentSmokeMain.VALUE, args[i])), "no fallback to untrusted/legacy property key");
+			for (int i = 1; i <= 2; i++) {
+				check(!info.validateProperty(new Property(AgentSmokeMain.VALUE, args[i])), "unavailable custom property issuer rejected");
 				reusable.update(data);
-				check(!reusable.verify(decode(args[i])), "unavailable issuer cannot verify certificates");
+				check(!reusable.verify(decode(args[i])), "unavailable custom certificate issuer rejected");
 			}
+			check(info.validateProperty(new Property(AgentSmokeMain.VALUE, args[3])), "metadata property fallback remains trusted");
+			reusable.update(data);
+			check(reusable.verify(decode(args[3])), "metadata certificate fallback remains trusted");
 			success(); return;
 		}
 		check(info.validateProperty(a), "initial station A trust");

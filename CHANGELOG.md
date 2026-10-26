@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.2（联合公钥刷新撤销修复）
+- 修复：metadata 旧签名公钥仅作为接口失败或缓存过期时的降级信任根；公钥接口成功刷新后，已移除的旧密钥不再残留在有效快照中，Mojang 内置公钥继续保留。
+
+## 1.4.1（union 联合信任适配）
+- 修复：公钥接口（minecraftservices/publickeys）失败或缓存过期时，降级信任集退化为仅内置 Mojang，导致本站签名材质全体不可见。现降级为【元数据 signaturePublickey ∪ Mojang】——本站自身签名的材质在降级期仍可验证，未知密钥依旧拒绝。
+- 配套：多站联合（如 swustmc ↔ TUC）场景下，各站使用联盟统一的材质签名密钥时，接口抖动不再造成单侧皮肤批量消失。
+
 ## 1.4.0 — local development, unreleased
 
 - Add tag-gated GitHub Actions publishing to YuDream Nexus with separate credential-free build/test and deployment jobs, exact-artifact promotion, release preflight and post-upload SHA-256 verification. Update fork-specific README links and disable inherited upstream deployment jobs on this fork.

@@ -45,7 +45,7 @@ public class PackagedAgentTest {
 	}
 
 	@Test
-	public void badPublicKeyEndpointAllowsStartupButRejectsCustomSignatures() throws Exception {
+	public void badPublicKeyEndpointAllowsStartupAndUsesMetadataFallback() throws Exception {
 		runAgent(true, true, true, false, "unavailable");
 	}
 
